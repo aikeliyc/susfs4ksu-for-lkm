@@ -52,6 +52,7 @@
 #include <linux/version.h>	/* LINUX_VERSION_CODE: the setxattr hook's first argument */
 #include "susfs_abi.h"
 #include "susfs_log.h"
+#include "sus_app_uid.h"
 #include "sus_path_match.h"
 #include "sus_path_data.h"
 #include "sus_path_view.h"
@@ -448,6 +449,12 @@ static inline bool sus_path_gate(struct inode *inode)
 {
     if (!hide_from_apps)
         return true;
+    /* v2.4.0's sus_path uid filter: the listed apps' uids are the ones that still SEE the
+     * registered rules, even when KernelSU would umount their modules.  The reverse of the
+     * priority filter: this one whitelists readers, it does not widen hiding.  It sits AFTER
+     * hide_from_apps so the "hide from root too" test mode keeps hiding from everyone. */
+    if (sus_app_uid_filter_allows(&sus_path_uid_filter, current_uid().val))
+        return false;
     if (!susfs_is_current_proc_umounted_app())
         return false;
     return !inode || current_uid().val != inode->i_uid.val;
@@ -1155,6 +1162,8 @@ static void sus_path_view_fill(struct sus_path_view *v, enum sus_path_face face,
     v->caller_is_su = susfs_control_visible();
     v->hide_from_apps = sus_path_hide_from_apps();
     v->control_visible = susfs_control_visible();
+    v->caller_uid_exempt =
+        sus_app_uid_filter_allows(&sus_path_uid_filter, v->caller_uid);
 }
 
 int sus_path_rule_facts_inode(struct inode *inode,
@@ -2343,6 +2352,11 @@ static int sus_path_format_list(char *buf, size_t size)
                    hide_from_apps, atomic_read(&n_enoent_getattr),
                    atomic_read(&n_enoent_perm), atomic_read(&n_enoent_nameop),
                    atomic_read(&n_enoent_meta));
+    {
+        char line[512];
+        sus_app_uid_filter_status(&sus_path_uid_filter, line, sizeof(line));
+        n = sus_path_list_puts(buf, n, &trunc, "uid_filter: %s\n", line);
+    }
     /* The readlink face answers in the i_op slot or, before it, in the LSM hook; report
      * both, plus whether every i_op copy could be allocated. */
     n = sus_path_list_puts(buf, n, &trunc,
@@ -2697,6 +2711,7 @@ int sus_path_init(void)
 {
     int rc;
 
+    sus_app_uid_filter_init(&sus_path_uid_filter, "sus_path");
     WRITE_ONCE(sus_path_stopping, false);
     WRITE_ONCE(sus_path_lifetime_watch, false);
     rc = susfs_sb_watch_init(sus_path_sb_release);
@@ -2903,6 +2918,9 @@ void sus_path_exit(void)
     sus_path_iops_free();
     susfs_sb_watch_exit();
     WRITE_ONCE(sus_path_lifetime_watch, false);
+    /* Nothing reads the filter any more: both LSM hooks and the stat-layer callbacks that
+     * fill the view are gone by now. */
+    sus_app_uid_filter_exit(&sus_path_uid_filter);
 }
 
 /* supercall: CMD_SUSFS_ADD_SUS_PATH (0x55550) / CMD_SUSFS_ADD_SUS_PATH_LOOP (0x55553)
@@ -2917,6 +2935,31 @@ void sus_path_exit(void)
  * the moment the background walk resolves its inode; what the pending state delays is every
  * layer - the LSM hooks (by inode) and the dirent filter ((ino, name)) - because none of them can
  * match an inode that does not exist yet. */
+/* CMD_SUSFS_SET_SUS_PATH_UID_FILTER (0x55554, upstream v2.4.0): replace the uid whitelist.
+ * Same reply shape as every other ABI struct - the caller-supplied struct, with `err` last.
+ * 64 KB of app names is far above the 256-byte path commands, so the struct is kvmalloc'ed
+ * (order-4 kmalloc is not available on a phone that has been up for a while). */
+static void sus_path_uid_filter_supercall(void __user **arg)
+{
+    struct st_susfs_sus_path_uid_filter *info;
+    int err = -ENOMEM;
+
+    info = kvmalloc(sizeof(*info), GFP_KERNEL | __GFP_ZERO);
+    if (info) {
+        if (copy_from_user(info, (void __user *)*arg, sizeof(*info))) {
+            err = -EFAULT;
+        } else if (!memchr(info->app_strings, '\0', sizeof(info->app_strings))) {
+            err = -EINVAL;
+        } else {
+            err = sus_app_uid_filter_set(&sus_path_uid_filter, info->app_strings);
+        }
+    }
+    if (copy_to_user(&((struct st_susfs_sus_path_uid_filter __user *)*arg)->err,
+                     &err, sizeof(err)))
+        pr_warn("sus_path uid filter supercall copy_to_user failed\n");
+    kvfree(info);
+}
+
 void sus_path_supercall(unsigned int cmd, void __user **arg)
 {
     struct st_susfs_sus_path info = {0};
@@ -2926,6 +2969,11 @@ void sus_path_supercall(unsigned int cmd, void __user **arg)
     bool have_path = false;
     bool pending_ok = (cmd == CMD_SUSFS_ADD_SUS_PATH_LOOP);
     int rc;
+
+    if (cmd == CMD_SUSFS_SET_SUS_PATH_UID_FILTER) {
+        sus_path_uid_filter_supercall(arg);
+        return;
+    }
 
     if (copy_from_user(&info, (void __user *)*arg, sizeof(info))) {
         info.err = -EFAULT;

@@ -64,6 +64,8 @@ struct susfs_create_view {
 	bool caller_is_su;
 	bool hide_from_apps;
 	bool control_visible;
+	/* v2.4.0 sus_path uid whitelist: this caller keeps seeing ordinary rules. */
+	bool caller_uid_exempt;
 
 	bool rule_matched;
 	bool ordinary_rule;
@@ -100,7 +102,8 @@ susfs_create_decide_core(const struct susfs_create_view *v)
 			if (v->self_protect)
 				hidden = !v->control_visible;
 			else if (v->ordinary_rule)
-				hidden = !v->hide_from_apps || v->caller_is_app;
+				hidden = !v->hide_from_apps ||
+					 (v->caller_is_app && !v->caller_uid_exempt);
 			if (hidden)
 				d.action = SUSFS_CREATE_HIDE;
 		}
@@ -129,7 +132,8 @@ susfs_create_decide_core(const struct susfs_create_view *v)
 			/* hide_from_apps=0 applies the set to every process; otherwise the
 			 * upstream gate is app-only and never hides the owner's own object. */
 			if (!v->hide_from_apps ||
-			    (v->caller_is_app && v->caller_uid != v->i_uid))
+			    (v->caller_is_app && !v->caller_uid_exempt &&
+			     v->caller_uid != v->i_uid))
 				hidden = true;
 		}
 		/* Control nodes are invisible to every non-root caller, not only apps. */

@@ -107,6 +107,21 @@ int main(void)
 	v.link_old = false;
 	assert(susfs_create_decide_core(&v).action == SUSFS_CREATE_HIDE_NEW);
 
+	/* v2.4.0 sus_path uid whitelist: a whitelisted app may create through a rule it can see. */
+	v = base_view(SUSFS_CREATE_ST_EXISTS);
+	v.caller_uid_exempt = true;
+	assert(susfs_create_decide_core(&v).action == SUSFS_CREATE_PASS);
+
+	v = base_view(SUSFS_CREATE_ST_ABSENT);
+	v.pending = true;
+	v.caller_uid_exempt = true;
+	assert(susfs_create_decide_core(&v).action == SUSFS_CREATE_PASS);
+
+	v = base_view(SUSFS_CREATE_ST_EXISTS);
+	v.hide_from_apps = false;
+	v.caller_uid_exempt = true;
+	assert(susfs_create_decide_core(&v).action == SUSFS_CREATE_HIDE);
+
 	puts("susfs_create_view: ok");
 	return 0;
 }

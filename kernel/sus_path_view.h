@@ -53,6 +53,10 @@ struct sus_path_view {
 	bool caller_is_su;
 	bool hide_from_apps;
 	bool control_visible;
+	/* v2.4.0 sus_path uid filter: the caller's uid is on the whitelist and therefore keeps
+	 * seeing this rule even though it would otherwise be hidden from it.  Never applies to
+	 * self_protect rules (the control nodes answer ENOENT to every non-root caller). */
+	bool caller_uid_exempt;
 };
 
 static inline enum sus_path_decision
@@ -71,6 +75,9 @@ sus_path_decide_core(const struct sus_path_view *v)
 
 	if (!v->hide_from_apps)
 		return SUS_PATH_HIDE;
+
+	if (v->caller_uid_exempt)
+		return SUS_PATH_PASS;
 
 	if (v->face == SUS_PATH_FACE_INODE)
 		return (v->caller_is_app && v->caller_uid != v->i_uid)

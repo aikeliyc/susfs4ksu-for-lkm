@@ -82,6 +82,30 @@ int main(void)
 	v.control_visible = true;
 	assert(sus_path_decide_core(&v) == SUS_PATH_PASS);
 
+	/* v2.4.0 sus_path uid filter: a whitelisted caller keeps seeing user rules on both
+	 * faces, even though it is an app and the inode belongs to somebody else. */
+	v = base(SUS_PATH_FACE_INODE);
+	v.caller_uid_exempt = true;
+	assert(sus_path_decide_core(&v) == SUS_PATH_PASS);
+
+	v = base(SUS_PATH_FACE_DIRENT);
+	v.caller_uid_exempt = true;
+	assert(sus_path_decide_core(&v) == SUS_PATH_PASS);
+
+	/* The exemption never widens the "hide from root too" test mode... */
+	v = base(SUS_PATH_FACE_INODE);
+	v.hide_from_apps = false;
+	v.caller_uid_exempt = true;
+	assert(sus_path_decide_core(&v) == SUS_PATH_HIDE);
+
+	/* ...and never unlocks the module's own control nodes. */
+	v = base(SUS_PATH_FACE_INODE);
+	v.user_rule = false;
+	v.self_protect = true;
+	v.control_visible = false;
+	v.caller_uid_exempt = true;
+	assert(sus_path_decide_core(&v) == SUS_PATH_HIDE);
+
 	puts("sus_path_view: ok");
 	return 0;
 }

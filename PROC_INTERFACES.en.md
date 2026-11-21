@@ -21,6 +21,7 @@ Write commands **return `len` on success, a negative errno on failure**.
 | [`/proc/susfs_hide_mounts`](#procsusfs_hide_mounts) | which mounts count as "ours" (the set of mounts to hide) | `add <prefix>` / `del <prefix>` / `set <prefix>…` / `reset` / `clear` |
 | [`/proc/susfs_path`](#procsusfs_path) | the sus_path rule table -- **`cat` is the listing** | `add <path>` / `del <path>` / `clear` |
 | [`/proc/susfs_map`](#procsusfs_map) | hide the mapped real file by inode (`maps`/`smaps`/`smaps_rollup`/`map_files`/`pagemap`) | `add <path>` / `del <path>` / `clear` |
+| [`/proc/susfs_app_uid`](#procsusfs_app_uid) | the two v2.4.0 uid filters (sus_path whitelist / priority blacklist) | `sus_path <pkg,…>` / `priority <pkg,…>` / `clear [sus_path\|priority]` / `refresh [sus_path\|priority]` |
 | [`/proc/susfs_opath`](#procsusfs_opath) | self-check of the `open(..., O_PATH)` coverage on hidden paths | -- (read-only; two parameters `opath_test` / `opath_dump`) |
 
 The nodes are created only when sus_path's LSM layer is installed.
@@ -207,6 +208,24 @@ echo clear               > /proc/susfs_path     # clear all **normal** rules
 
 ---
 
+**uid whitelist (new in v2.4.0: `CMD_SUSFS_SET_SUS_PATH_UID_FILTER` 0x55554)**
+
+The listing gains one line:
+
+```
+uid_filter: active=1 uids=3 apps=com.a,com.b,com.c
+```
+
+Semantics are upstream's: **the app uids on the list still SEE these sus_path rules** (upstream maps them into a 10000..19999 bitmap; ids 90000..99999 are visible regardless). Set, clear and re-resolve through `/proc/susfs_app_uid`:
+
+```sh
+echo "sus_path com.a,com.b" > /proc/susfs_app_uid   # equivalent to ksu_susfs set_sus_path_uid_filter
+echo "clear sus_path"       > /proc/susfs_app_uid
+echo "refresh sus_path"     > /proc/susfs_app_uid
+```
+
+**One deliberate difference from upstream**: v2.4.0 hides sus_path from *every* process with uid >= 10000 except the listed ones, without asking KernelSU whether it would umount that app. This LKM keeps the post-issue-#34 "KernelSU umounted-app" gate; the whitelist only adds an exemption on top of that gate. The list therefore never widens hiding, and manager / su-granted apps do not become new hiding targets. `hide_from_apps=0` still hides from root too; the whitelist does not change that.
+
 **Residual risk (known limit)**: if the inode a rule holds really gets unhashed, and its number is then taken by another file in the same superblock, the rule will hide that file too.
 
 ## Hiding is not access control (must-know before use)
@@ -222,6 +241,43 @@ This module makes the **path name** invisible (`ENOENT`), but does not block cha
 ```sh
 ksu_susfs add_open_redirect <target> <redirected> <uid_scheme>   # uid_scheme: 0..4
 ```
+
+## /proc/susfs_app_uid
+
+Common entry point for both v2.4.0 uid filters: a package-name list resolved into a 10000..19999 uid bitmap.
+
+**Read**: two status lines; `uids` is how many uids the bitmap currently holds, `apps` is the stored name list (truncated past 160 bytes).
+
+```
+sus_path: active=1 uids=2 apps=com.a,com.b
+priority: active=0 uids=0 apps=
+```
+
+**Write**:
+
+```sh
+echo "sus_path com.a,com.b"  > /proc/susfs_app_uid   # CMD_SUSFS_SET_SUS_PATH_UID_FILTER (0x55554)
+echo "priority com.c,com.d"  > /proc/susfs_app_uid   # CMD_SUSFS_SET_PRIORITY_UID_FILTER (0x60030)
+echo "clear sus_path"        > /proc/susfs_app_uid
+echo "refresh priority"      > /proc/susfs_app_uid
+echo clear                   > /proc/susfs_app_uid   # both
+```
+
+`priority` semantics: the listed app uids are hidden from callers with uid >= 10000 -- `getpriority`/`setpriority` with `PRIO_USER` and `ioprio_get`/`ioprio_set` with `IOPRIO_WHO_USER` answer `-ESRCH`; root callers are unaffected (upstream gates on `cred->uid.val >= 10000`).
+
+**Where the names come from**: `/data/system/packages.list`, read through KernelSU's `ksu_cred` (the su domain) when that symbol is resolvable, otherwise with the caller's own credentials. Names that are not installed are skipped and counted (upstream behaves the same, so a just-uninstalled package does not fail the command); an invalid name fails the whole command with `-EINVAL`.
+
+**Automatic refresh**: a kprobe on KernelSU's `track_throne()` (runs after a package is installed, removed or gets a new uid) re-resolves the stored names, rate-limited to one refresh per 5 s. `app_uid_auto_refresh=0` turns it off: no automatic following of uid changes (the `refresh` command still works), and no pin on the `kernelsu` module (a kprobe holds a reference on the module that owns the probed symbol, so unloading KernelSU would be refused).
+
+**Coverage limit**: `priority` wraps the four native `sys_call_table` entries only (AArch32's `compat_sys_call_table` numbers are different syscalls, so they are deliberately untouched). Android 12+ ships 64-bit apps only, the same boundary the module's other 32-bit faces have.
+
+**Parameter** (`/sys/module/susfs_guard_lkm/parameters/`):
+
+```sh
+echo 0 > .../parameters/app_uid_auto_refresh   # disable the track_throne refresh (default 1)
+```
+
+---
 
 ## /proc/susfs_map
 

@@ -91,7 +91,7 @@ int sus_path_dirent_stat_line(char *buf, size_t size);
 
 /* The build's version string.  It lives here rather than in susfs_main.c because imports_guard.c
  * reports it when it refuses a load - and that happens before susfs_main.c prints its banner. */
-#define SUSFS_LKM_VERSION "2.3.0-gki"
+#define SUSFS_LKM_VERSION "2.4.0-gki"
 
 /* hide_modules (susfs_hide_syms.c): filters module NAMES out of /proc/modules (plus /sys/module and /proc/kallsyms for
  * non-root callers).  Node and same-named parameter are root-only; the node answers ENOENT through sus_path's hidden set. */
@@ -165,6 +165,7 @@ enum susfs_feature {
 	SUSFS_FEAT_OPEN_REDIRECT,
 	SUSFS_FEAT_SUS_MAP,
 	SUSFS_FEAT_AVC_SPOOF,	/* commands only: no upstream CONFIG_* line for it */
+	SUSFS_FEAT_PRIORITY_UID_FILTER,	/* 0x60030, upstream v2.4.0 */
 	SUSFS_FEAT_COUNT,
 };
 
@@ -175,12 +176,16 @@ bool susfs_supercall_feature_armed(enum susfs_feature feature);
 void susfs_uname_supercall(void __user **arg);
 void susfs_enable_log_supercall(void __user **arg);
 void susfs_avc_spoof_supercall(void __user **arg);
+void susfs_priority_filter_supercall(void __user **arg);
 void susfs_spoof_cmdline_supercall(void __user **arg);
 void susfs_sus_map_supercall(void __user **arg);
 void sus_path_supercall(unsigned int cmd, void __user **arg);
 void susfs_kstat_supercall(unsigned int cmd, void __user **arg);
 void susfs_open_redirect_supercall(void __user **arg);
 void susfs_sus_mount_supercall(void __user **arg);
+
+int susfs_priority_filter_init(void);
+void susfs_priority_filter_exit(void);
 
 int susfs_hide_syms_init(void);
 void susfs_hide_syms_exit(void);

@@ -21,6 +21,7 @@
 | [`/proc/susfs_hide_mounts`](#procsusfs_hide_mounts) | 哪些挂载算"我们的"（决定隐藏的挂载集合） | `add <前缀>` / `del <前缀>` / `set <前缀>…` / `reset` / `clear` |
 | [`/proc/susfs_path`](#procsusfs_path) | sus_path 规则表——**`cat` 就是清单** | `add <路径>` / `del <路径>` / `clear` |
 | [`/proc/susfs_map`](#procsusfs_map) | 按 inode 隐藏 mmap 的 real file（`maps`/`smaps`/`smaps_rollup`/`map_files`/`pagemap`） | `add <路径>` / `del <路径>` / `clear` |
+| [`/proc/susfs_app_uid`](#procsusfs_app_uid) | 两个 v2.4.0 uid 过滤器（sus_path 白名单 / 优先级隐藏）| `sus_path <包名,…>` / `priority <包名,…>` / `clear [sus_path\|priority]` / `refresh [sus_path\|priority]` |
 | [`/proc/susfs_opath`](#procsusfs_opath) | `open(..., O_PATH)` 在隐藏路径上的覆盖自检 | —（只读；两个参数 `opath_test` / `opath_dump`） |
 
 节点只在 sus_path 的 LSM 层装上时才创建。
@@ -207,6 +208,24 @@ echo clear               > /proc/susfs_path     # 清掉所有**普通**规则
 
 ---
 
+**uid 白名单（v2.4.0 新增：`CMD_SUSFS_SET_SUS_PATH_UID_FILTER` 0x55554）**
+
+清单里多一行：
+
+```
+uid_filter: active=1 uids=3 apps=com.a,com.b,com.c
+```
+
+语义与上游一致：**名单里的 app uid 仍然能看到这些 sus_path 规则**（上游把 uid 放进 10000–19999 的位图，90000–99999 的 id 无论名单如何都可见）。设置/撤销/重解析都走 `/proc/susfs_app_uid`：
+
+```sh
+echo "sus_path com.a,com.b" > /proc/susfs_app_uid   # 等价于 ksu_susfs set_sus_path_uid_filter
+echo "clear sus_path"       > /proc/susfs_app_uid
+echo "refresh sus_path"     > /proc/susfs_app_uid
+```
+
+**与上游的一处语义差异，必须知道**：上游 v2.4.0 把 sus_path 的隐藏范围改成"所有 uid ≥ 10000 的进程，名单除外"（不再看 KernelSU 是否 umount 该 app）；本模块保留 issue #34 之后"KernelSU umounted-app"门控，白名单只是在门控之上额外放行。因此名单**不会**扩大隐藏面，也不会让 manager / su 授予的 app 变成新的隐藏对象；`hide_from_apps=0` 的测试模式仍然对 root 也隐藏，白名单不改变它。
+
 **残留风险（已知边界）**：一条规则持有的 inode 若真的被解除 hash、而它的号码又被同一超级块里的另一个文件拿走，该规则会连带隐藏那个文件。
 
 ## 隐藏 ≠ 访问控制（用之前必须知道）
@@ -222,6 +241,43 @@ echo clear               > /proc/susfs_path     # 清掉所有**普通**规则
 ```sh
 ksu_susfs add_open_redirect <target> <redirected> <uid_scheme>   # uid_scheme: 0..4
 ```
+
+## /proc/susfs_app_uid
+
+v2.4.0 两个 uid 过滤器的共用入口：包名列表解析成 10000–19999 的 uid 位图。
+
+**读**：两行状态，`uids` 是位图里当前命中的 uid 个数，`apps` 是存下来的原始名单（超过 160 字节截断）。
+
+```
+sus_path: active=1 uids=2 apps=com.a,com.b
+priority: active=0 uids=0 apps=
+```
+
+**写**：
+
+```sh
+echo "sus_path com.a,com.b"  > /proc/susfs_app_uid   # CMD_SUSFS_SET_SUS_PATH_UID_FILTER (0x55554)
+echo "priority com.c,com.d"  > /proc/susfs_app_uid   # CMD_SUSFS_SET_PRIORITY_UID_FILTER (0x60030)
+echo "clear sus_path"        > /proc/susfs_app_uid
+echo "refresh priority"      > /proc/susfs_app_uid
+echo clear                   > /proc/susfs_app_uid   # 两个都清
+```
+
+`priority` 的语义：名单里的 app uid 对 uid ≥ 10000 的调用者隐藏——`getpriority`/`setpriority` 的 `PRIO_USER`、`ioprio_get`/`ioprio_set` 的 `IOPRIO_WHO_USER` 一律回 `-ESRCH`；root 调用不受影响（和上游一样，`cred->uid.val >= 10000` 才拦）。
+
+**解析来源**：`/data/system/packages.list`（借 KernelSU 的 `ksu_cred` 以 su 域读，读不到就用调用者自己的 creds）。找不到的包名会被跳过并计数（上游同样如此，刚卸载的包不会让命令失败）；非法包名整条命令 `-EINVAL`。
+
+**自动刷新**：KernelSU 的 `track_throne()` 上挂了一个 kprobe（包安装/卸载/换 uid 后触发），5 秒限速地重新解析存下来的名单。`app_uid_auto_refresh=0` 关掉它——代价是不再自动跟随 uid 变化（`refresh` 命令仍然可用），好处是不再 pin 住 `kernelsu` 模块（kprobe 会持有被探测符号所在模块的引用，卸载 KSU 模块会被拒绝）。
+
+**覆盖边界**：`priority` 只包了 native `sys_call_table` 的四个入口（AArch32 的 `compat_sys_call_table` 同号不同 syscall，不碰）。Android 12+ 的应用只有 64 位，所以这与模块其它 32 位面的边界一致。
+
+**参数**（`/sys/module/susfs_guard_lkm/parameters/`）：
+
+```sh
+echo 0 > .../parameters/app_uid_auto_refresh   # 关掉 track_throne 自动刷新（默认 1）
+```
+
+---
 
 ## /proc/susfs_map
 

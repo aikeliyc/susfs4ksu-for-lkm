@@ -53,6 +53,8 @@ Reboot to apply. Remove that file and reboot to return to normal loading; upgrad
 
 Use early loading when SUSFS rules or original kstat snapshots must be configured before module post-fs-data scripts and mounts. It makes the interface available sooner, so those operations can run at the required boot stage. If the manager applies SUSFS settings before common scripts, an earlier loading stage is still required. The module only loads the LKM; the manager applies settings.
 
+Tracks upstream **susfs4ksu v2.4.0** (sus_path uid whitelist, getpriority/ioprio uid filter).
+
 ## 📚 Interface docs
 
 All `/proc` control nodes: see **[PROC_INTERFACES.en.md](PROC_INTERFACES.en.md)**.

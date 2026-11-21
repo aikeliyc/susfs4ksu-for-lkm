@@ -11,6 +11,7 @@
 #include <linux/module.h>
 
 #include "susfs.h"
+#include "sus_app_uid.h"
 #include "susfs_create_op.h"
 #include "susfs_create_policy.h"
 #include "susfs_create_view.h"
@@ -35,6 +36,9 @@ static void create_view_fill_caller(struct susfs_create_view *v)
 	v->caller_is_su = susfs_control_visible();
 	v->control_visible = susfs_control_visible();
 	v->hide_from_apps = sus_path_hide_from_apps();
+	/* The whitelist has to answer here too, or an app allowed to SEE a directory could still
+	 * not create in it - upstream's mkdir/lookup gate is the same is_inode_sus_path(). */
+	v->caller_uid_exempt = sus_app_uid_filter_allows(&sus_path_uid_filter, v->caller_uid);
 }
 
 static int create_view_decide(struct susfs_create_view *v,

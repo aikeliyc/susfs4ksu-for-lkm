@@ -81,6 +81,21 @@
       "phase": 0,
       "budget": 999
     },
+    "kernel/sus_app_uid.c": {
+      "layer": "legacy",
+      "phase": 0,
+      "budget": 999
+    },
+    "kernel/sus_app_uid.h": {
+      "layer": "legacy",
+      "phase": 0,
+      "budget": 999
+    },
+    "kernel/sus_app_uid_view.h": {
+      "layer": "legacy",
+      "phase": 0,
+      "budget": 999
+    },
     "kernel/sus_dirent.c": {
       "layer": "legacy",
       "phase": 0,
@@ -173,9 +188,9 @@
       "phase": 0,
       "budget": 999
     },
-    "kernel/susfs_create_op.h": {
-      "layer": "P",
-      "phase": 2,
+    "kernel/sus_path_data.h": {
+      "layer": "D",
+      "phase": 3,
       "budget": 0,
       "allowed_includes": [],
       "allowed_symbols": []
@@ -187,37 +202,9 @@
       "allowed_includes": [],
       "allowed_symbols": []
     },
-    "kernel/sus_path_data.h": {
-      "layer": "D",
-      "phase": 3,
-      "budget": 0,
-      "allowed_includes": [],
-      "allowed_symbols": []
-    },
     "kernel/sus_path_view.h": {
       "layer": "L",
       "phase": 3,
-      "budget": 0,
-      "allowed_includes": [],
-      "allowed_symbols": []
-    },
-    "kernel/susfs_open_view.h": {
-      "layer": "L",
-      "phase": 4,
-      "budget": 0,
-      "allowed_includes": [],
-      "allowed_symbols": []
-    },
-    "kernel/susfs_open_data.h": {
-      "layer": "D",
-      "phase": 4,
-      "budget": 0,
-      "allowed_includes": [],
-      "allowed_symbols": []
-    },
-    "kernel/susfs_kstat_view.h": {
-      "layer": "L",
-      "phase": 5,
       "budget": 0,
       "allowed_includes": [],
       "allowed_symbols": []
@@ -253,6 +240,13 @@
       "layer": "F",
       "phase": 2,
       "budget": 4,
+      "allowed_includes": [],
+      "allowed_symbols": []
+    },
+    "kernel/susfs_create_op.h": {
+      "layer": "P",
+      "phase": 2,
+      "budget": 0,
       "allowed_includes": [],
       "allowed_symbols": []
     },
@@ -317,6 +311,13 @@
       "phase": 0,
       "budget": 999
     },
+    "kernel/susfs_kstat_view.h": {
+      "layer": "L",
+      "phase": 5,
+      "budget": 0,
+      "allowed_includes": [],
+      "allowed_symbols": []
+    },
     "kernel/susfs_log.h": {
       "layer": "legacy",
       "phase": 0,
@@ -337,10 +338,24 @@
       "phase": 0,
       "budget": 999
     },
+    "kernel/susfs_open_data.h": {
+      "layer": "D",
+      "phase": 4,
+      "budget": 0,
+      "allowed_includes": [],
+      "allowed_symbols": []
+    },
     "kernel/susfs_open_redirect.c": {
       "layer": "legacy",
       "phase": 0,
       "budget": 999
+    },
+    "kernel/susfs_open_view.h": {
+      "layer": "L",
+      "phase": 4,
+      "budget": 0,
+      "allowed_includes": [],
+      "allowed_symbols": []
     },
     "kernel/susfs_or_entry.c": {
       "layer": "legacy",
@@ -348,6 +363,11 @@
       "budget": 999
     },
     "kernel/susfs_or_entry.h": {
+      "layer": "legacy",
+      "phase": 0,
+      "budget": 999
+    },
+    "kernel/susfs_priority_filter.c": {
       "layer": "legacy",
       "phase": 0,
       "budget": 999

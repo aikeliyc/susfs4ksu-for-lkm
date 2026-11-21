@@ -103,6 +103,9 @@ static const struct feature_entry enabled_features[] = {
 	{ "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG\n",	SUSFS_FEAT_SPOOF_CMDLINE },
 	{ "CONFIG_KSU_SUSFS_OPEN_REDIRECT\n",	SUSFS_FEAT_OPEN_REDIRECT },
 	{ "CONFIG_KSU_SUSFS_SUS_MAP\n",		SUSFS_FEAT_SUS_MAP },
+	/* v2.4.0.  sus_path's uid whitelist has no CONFIG line of its own upstream - it is part
+	 * of CONFIG_KSU_SUSFS_SUS_PATH, so it is covered by the SUS_PATH entry above. */
+	{ "CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER\n",	SUSFS_FEAT_PRIORITY_UID_FILTER },
 	/* hide_modules is not upstream's, so it is not listed here - the feature itself is unchanged. */
 };
 
@@ -166,8 +169,13 @@ static void susfs_tw_func(struct callback_head *cb)
 		break;
 	case CMD_SUSFS_ADD_SUS_PATH:
 	case CMD_SUSFS_ADD_SUS_PATH_LOOP:
-		/* The two commands answer a missing path differently upstream. */
+	case CMD_SUSFS_SET_SUS_PATH_UID_FILTER:
+		/* The two add commands answer a missing path differently upstream; the uid filter
+		 * command is dispatched by the same handler because it owns the same rule table. */
 		sus_path_supercall(tw->cmd, &arg);
+		break;
+	case CMD_SUSFS_SET_PRIORITY_UID_FILTER:
+		susfs_priority_filter_supercall(&arg);
 		break;
 	case CMD_SUSFS_ADD_SUS_MAP:
 		susfs_sus_map_supercall(&arg);
@@ -229,7 +237,10 @@ static int susfs_cmd_feature(unsigned int cmd)
 	switch (cmd) {
 	case CMD_SUSFS_ADD_SUS_PATH:
 	case CMD_SUSFS_ADD_SUS_PATH_LOOP:
+	case CMD_SUSFS_SET_SUS_PATH_UID_FILTER:
 		return SUSFS_FEAT_SUS_PATH;
+	case CMD_SUSFS_SET_PRIORITY_UID_FILTER:
+		return SUSFS_FEAT_PRIORITY_UID_FILTER;
 	case CMD_SUSFS_ADD_SUS_MAP:
 		return SUSFS_FEAT_SUS_MAP;
 	case CMD_SUSFS_ADD_SUS_KSTAT:
@@ -460,6 +471,13 @@ static void __init susfs_abi_layout_check(void)
 
 	BUILD_BUG_ON(sizeof(struct st_susfs_enabled_features) != 8196);
 	BUILD_BUG_ON(offsetof(struct st_susfs_enabled_features, err) != 8192);
+
+	/* v2.4.0: char app_strings[65535] then int err, so the int is 4-byte aligned at 65536
+	 * (one padding byte) and the struct is 65540 - the same layout as upstream. */
+	BUILD_BUG_ON(sizeof(struct st_susfs_sus_path_uid_filter) != 65540);
+	BUILD_BUG_ON(offsetof(struct st_susfs_sus_path_uid_filter, err) != 65536);
+	BUILD_BUG_ON(sizeof(struct st_susfs_priority_uid_filter) != 65540);
+	BUILD_BUG_ON(offsetof(struct st_susfs_priority_uid_filter, err) != 65536);
 }
 
 int susfs_supercall_init(void)

@@ -46,8 +46,9 @@ typedef long s64;
 
 /* Large enough for the biggest payload struct in the ABI
  * (st_susfs_spoof_cmdline_or_bootconfig and st_susfs_enabled_features are 8196:
- * a 4096-byte buffer here made the kernel copy 4 KB past its end). */
-#define PAYLOAD_MAX 8196
+ * a 4096-byte buffer here made the kernel copy 4 KB past its end).
+ * v2.4.0's two uid-filter structs are 65540 (char app_strings[65535] + int err). */
+#define PAYLOAD_MAX 65540
 
 /* Every reply struct in kernel/susfs_abi.h ends with its `int err` as the LAST
  * field, and all twelve have sizeof - offsetof(err) == 4 (260/256, 376/372,

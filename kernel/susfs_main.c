@@ -21,6 +21,7 @@
 #include "btf_layout.h"		/* the SELinux inode_security_struct.sid offset, by BTF */
 #include "lsm_hook.h"
 #include "susfs.h"
+#include "sus_app_uid.h"
 #include "susfs_opath.h"	/* SUSFS_OPATH_NODE + the layer's init/exit */
 #include "susfs_fp_hook.h"	/* susfs_fp_init: the sys_call_table cache every fp layer installs through */
 
@@ -59,6 +60,9 @@ static const char *const susfs_self_hide_paths[] = {
      * entries and the counters that say whether a wrapper ever ran. */
     SUSFS_OPATH_NODE,
     SUSFS_MAP_NODE,
+    /* Both v2.4.0 app-uid filters' status (the package names on the lists are as telling as a
+     * rule listing: they name exactly the apps that were singled out). */
+    SUSFS_APP_UID_NODE,
     /* The module's own sysfs directory is NOT here: it belongs to hide_module
      * (susfs_hide_syms.c), which adds and drops that rule at runtime. */
 };
@@ -261,6 +265,10 @@ enum susfs_layer_id {
     SUSFS_L_OPEN_REDIRECT,
     SUSFS_L_ENABLE_LOG,
     SUSFS_L_AVC_SPOOF,
+    /* v2.4.0: getpriority/setpriority + ioprio_get/ioprio_set uid filter.  After avc_spoof and
+     * before supercall, so the supercall layer can arm its command only once the wrappers are
+     * really in the table. */
+    SUSFS_L_PRIORITY_FILTER,
     SUSFS_L_SUPERCALL,
     SUSFS_L_HIDE_SYMS,
     SUSFS_L_COUNT,
@@ -314,6 +322,10 @@ static struct susfs_layer {
     { "open_redirect",	susfs_open_redirect_init,	susfs_open_redirect_exit, false, SUSFS_FEAT_OPEN_REDIRECT },
     { "enable_log",	susfs_enable_log_init,		susfs_enable_log_exit,	false, SUSFS_FEAT_ENABLE_LOG },
     { "avc_spoof",	susfs_avc_spoof_init,		susfs_avc_spoof_exit,	false, SUSFS_FEAT_AVC_SPOOF },
+    /* NOT fatal: it patches four syscall-table entries through the fp_hook cache.  When they
+     * cannot all be installed the feature stays off and the supercall answers
+     * ERR_CMD_NOT_SUPPORTED; every other layer is unaffected. */
+    { "priority_uid_filter",	susfs_priority_filter_init,	susfs_priority_filter_exit,	false, SUSFS_FEAT_PRIORITY_UID_FILTER },
     { "supercall",	susfs_supercall_init,		susfs_supercall_exit,	false, -1 },
     { "hide_syms",	susfs_hide_syms_init,		susfs_hide_syms_exit,	false, SUSFS_FEAT_HIDE_SYMS },
 };
@@ -327,7 +339,8 @@ static struct susfs_layer {
  * comments in sync whenever a layer is inserted):
  *   1 fp_hook   2 ksu_umount_gate  3 ksu_allow_gate  4 lsm_hook   5 sus_path
  *   6 create_gate  7 opath  8 dirent  9 uname  10 kstat  11 sus_map  12 sus_mount
- *   13 cmdline  14 open_redirect  15 enable_log  16 avc_spoof  17 supercall  18 hide_syms
+ *   13 cmdline  14 open_redirect  15 enable_log  16 avc_spoof  17 priority_uid_filter
+ *   18 supercall  19 hide_syms
  */
 static int fail_layer;
 module_param_named(fail_layer, fail_layer, int, 0644);
@@ -371,6 +384,7 @@ static const struct {
     { SUSFS_L_OPEN_REDIRECT, false },
     { SUSFS_L_ENABLE_LOG, false },
     { SUSFS_L_AVC_SPOOF, false },
+    { SUSFS_L_PRIORITY_FILTER, false },
     { SUSFS_L_SUPERCALL, true },
     { SUSFS_L_HIDE_SYMS, false },
 };
@@ -458,6 +472,10 @@ static int __init susfs_init(void)
         }
     }
 
+    /* The app-uid node must exist before it can be registered as self-hidden; it is created
+     * only when sus_path's LSM layer is there (susfs_control_node_allowed()). */
+    sus_app_uid_proc_init();
+
     /* Registered last and undone implicitly: these are entries in sus_path's table, which
      * sus_path_exit() empties while its LSM layer still answers ENOENT for the nodes. */
     susfs_self_hide_nodes();
@@ -487,6 +505,10 @@ static int __init susfs_init(void)
 
 static void __exit susfs_exit(void)
 {
+    /* Before the layers: the node's handlers call into both filters and the layer teardown
+     * frees them.  sus_path's LSM layer is still armed here, so the node never becomes
+     * visible for the duration either. */
+    sus_app_uid_proc_exit();
     susfs_layers_down((int)ARRAY_SIZE(susfs_layers) - 1);
     SUSFS_LOGI("susfs_guard_lkm: exit\n");
 }
@@ -531,4 +553,4 @@ MODULE_IMPORT_NS("VFS_internal_I_am_really_a_filesystem_and_am_NOT_a_driver");
 #else
 MODULE_IMPORT_NS(VFS_internal_I_am_really_a_filesystem_and_am_NOT_a_driver);
 #endif
-MODULE_DESCRIPTION("SUSFS guard LKM (susfs_guard_lkm) v2.3.0-gki");
+MODULE_DESCRIPTION("SUSFS guard LKM (susfs_guard_lkm) v2.4.0-gki");
