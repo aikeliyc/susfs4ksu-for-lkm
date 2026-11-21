@@ -5,8 +5,8 @@
 
 #include <linux/errno.h>
 #include <linux/list.h>
-#include <asm/tlbflush.h>
 #include <linux/mm.h>
+#include <asm/tlbflush.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
 #include <linux/kernel.h>
